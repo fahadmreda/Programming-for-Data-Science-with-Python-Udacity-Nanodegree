@@ -1,0 +1,233 @@
+/*Query-1 */
+Set-1 Question-1
+We want to understand more about the movies that families are watching. The following categories are considered family movies: Animation, Children, Classics, Comedy, Family, and Music.
+Create a query that lists each movie, the film category it is classified in, and the number of times it has been rented out
+
+SELECT 
+    f.title,
+    c.name AS category,
+    COUNT(r.rental_id) AS rental_count
+FROM film f
+JOIN film_category fc ON f.film_id = fc.film_id
+JOIN category c ON fc.category_id = c.category_id
+LEFT JOIN inventory i ON f.film_id = i.film_id
+LEFT JOIN rental r ON i.inventory_id = r.inventory_id
+WHERE c.name IN ('Animation', 'Children', 'Classics', 'Comedy', 'Family', 'Music')
+GROUP BY f.title, c.name
+ORDER BY rental_count DESC;
+
+
+/*Query-2 */
+Set-1 Question-2
+Now we need to know how the length of rental duration of these family-friendly movies compares to the duration that all movies are rented for. Can you provide a table with the movie titles and divide them into 4 levels (first_quarter, second_quarter, third_quarter, and final_quarter) based on the quartiles (25%, 50%, 75%) of the average rental duration(in the number of days) for movies across all categories? 
+
+WITH all_films AS (
+    SELECT 
+        film_id,
+        rental_duration
+    FROM film
+),
+quartile_data AS (
+    SELECT 
+        rental_duration,
+        NTILE(4) OVER (ORDER BY rental_duration) AS standard_quartile
+    FROM all_films
+),
+quartile_ranges AS (
+    SELECT 
+        MIN(rental_duration) FILTER (WHERE standard_quartile = 1) AS q1,
+        MIN(rental_duration) FILTER (WHERE standard_quartile = 2) AS q2,
+        MIN(rental_duration) FILTER (WHERE standard_quartile = 3) AS q3,
+        MAX(rental_duration) AS q4
+    FROM quartile_data
+),
+family_friendly_movies AS (
+    SELECT 
+        f.title,
+        c.name,
+        f.rental_duration
+    FROM film f
+    JOIN film_category fc ON f.film_id = fc.film_id
+    JOIN category c ON fc.category_id = c.category_id
+    WHERE c.name IN ('Animation', 'Children', 'Family')
+),
+labeled_movies AS (
+    SELECT 
+        ff.title,
+        ff.name,
+        ff.rental_duration,
+        CASE 
+            WHEN ff.rental_duration <= q.q1 THEN 1
+            WHEN ff.rental_duration <= q.q2 THEN 2
+            WHEN ff.rental_duration <= q.q3 THEN 3
+            ELSE 4
+        END AS standard_quartile
+    FROM family_friendly_movies ff
+    CROSS JOIN quartile_ranges q
+)
+SELECT * FROM labeled_movies
+ORDER BY title;
+
+
+/*Query-3 */
+Set-1 Question-3
+
+Finally, provide a table with the family-friendly film category, each of the quartiles, and the corresponding count of movies within each combination of film category for each corresponding rental duration category
+
+WITH all_films AS (
+    SELECT 
+        film_id,
+        rental_duration
+    FROM film
+),
+quartile_data AS (
+    SELECT 
+        rental_duration,
+        NTILE(4) OVER (ORDER BY rental_duration) AS quartile
+    FROM all_films
+),
+quartile_ranges AS (
+    SELECT 
+        MIN(rental_duration) FILTER (WHERE quartile = 1) AS q1,
+        MIN(rental_duration) FILTER (WHERE quartile = 2) AS q2,
+        MIN(rental_duration) FILTER (WHERE quartile = 3) AS q3,
+        MAX(rental_duration) AS q4
+    FROM quartile_data
+),
+family_friendly_movies AS (
+    SELECT 
+        f.title,
+        c.name AS category,
+        f.rental_duration
+    FROM film f
+    JOIN film_category fc ON f.film_id = fc.film_id
+    JOIN category c ON fc.category_id = c.category_id
+    WHERE c.name IN ('Animation', 'Children', 'Family')
+),
+labeled_movies AS (
+    SELECT 
+        ff.category,
+        CASE 
+            WHEN ff.rental_duration <= q.q1 THEN 'first_quarter'
+            WHEN ff.rental_duration <= q.q2 THEN 'second_quarter'
+            WHEN ff.rental_duration <= q.q3 THEN 'third_quarter'
+            ELSE 'final_quarter'
+        END AS rental_length_category
+    FROM family_friendly_movies ff
+    CROSS JOIN quartile_ranges q
+),
+grouped_counts AS (
+    SELECT 
+        category,
+        rental_length_category,
+        COUNT(*) AS count
+    FROM labeled_movies
+    GROUP BY category, rental_length_category
+)
+SELECT * 
+FROM grouped_counts
+ORDER BY category, rental_length_category;
+
+/*Query-4 */
+Set-2 Question-1
+We want to find out how the two stores compare in their count of rental orders during every month for all the years we have data for. ** **
+Write a query that returns the store ID for the store, the year and month and the number of rental orders each store has fulfilled for that month. Your table should include a column for each of the following: year, month, store ID and count of rental orders fulfilled during that month
+
+
+SELECT 
+    EXTRACT(MONTH FROM r.rental_date) AS rental_month,
+    EXTRACT(YEAR FROM r.rental_date) AS rental_year,
+    i.store_id,
+    COUNT(*) AS count_rentals
+FROM rental r
+JOIN inventory i ON r.inventory_id = i.inventory_id
+GROUP BY rental_year, rental_month, i.store_id
+ORDER BY rental_year, rental_month, i.store_id;
+
+/*Query-5 */
+Set-2 Question-2
+We would like to know who were our top 10 paying customers, how many payments they made on a monthly basis during 2007, and what was the amount of the monthly payments. Can you write a query to capture the customer name, month and year of payment, and total payment amount for each month by these top 10 paying customers?
+
+WITH top_customers AS (
+    SELECT
+        customer_id,
+        first_name || ' ' || last_name AS fullname,
+        SUM(amount) AS total_paid
+    FROM payment
+    JOIN customer USING(customer_id)
+    GROUP BY customer_id, fullname
+    ORDER BY total_paid DESC
+    LIMIT 10
+),
+
+monthly_summary AS (
+    SELECT
+        p.customer_id,
+        c.fullname,
+        TO_CHAR(p.payment_date, 'YYYY-MM') AS pay_mon,
+        COUNT(*) AS pay_countpermon,
+        SUM(p.amount) AS pay_amount
+    FROM payment p
+    JOIN top_customers c ON p.customer_id = c.customer_id
+    WHERE EXTRACT(YEAR FROM p.payment_date) = 2007
+    GROUP BY p.customer_id, c.fullname, pay_mon
+)
+
+SELECT 
+    pay_mon,
+    fullname,
+    pay_countpermon,
+    pay_amount
+FROM monthly_summary
+ORDER BY fullname, pay_mon;
+
+
+/*Query-5 */
+Set-2 Question-2
+
+Finally, for each of these top 10 paying customers, I would like to find out the difference across their monthly payments during 2007. Please go ahead and write a query to compare the payment amounts in each successive month. Repeat this for each of these 10 paying customers. Also, it will be tremendously helpful if you can identify the customer name who paid the most difference in terms of payments
+
+WITH top_customers AS (
+    SELECT
+        customer_id,
+        first_name || ' ' || last_name AS fullname,
+        SUM(amount) AS total_paid
+    FROM payment
+    JOIN customer USING(customer_id)
+    GROUP BY customer_id, fullname
+    ORDER BY total_paid DESC
+    LIMIT 10
+),
+
+monthly_payments AS (
+    SELECT
+        p.customer_id,
+        c.fullname,
+        DATE_TRUNC('month', p.payment_date) AS pay_month,
+        SUM(p.amount) AS total_payment
+    FROM payment p
+    JOIN top_customers c ON p.customer_id = c.customer_id
+    WHERE EXTRACT(YEAR FROM p.payment_date) = 2007
+    GROUP BY p.customer_id, c.fullname, pay_month
+),
+
+payment_differences AS (
+    SELECT
+        customer_id,
+        fullname,
+        TO_CHAR(pay_month, 'YYYY-MM') AS pay_mon,
+        total_payment,
+        LAG(total_payment) OVER (PARTITION BY customer_id ORDER BY pay_month) AS prev_payment,
+        total_payment - LAG(total_payment) OVER (PARTITION BY customer_id ORDER BY pay_month) AS payment_diff
+    FROM monthly_payments
+)
+
+SELECT 
+    pay_mon,
+    fullname,
+    total_payment,
+    prev_payment,
+    ROUND(payment_diff, 2) AS payment_diff
+FROM payment_differences
+ORDER BY fullname, pay_mon;
+
